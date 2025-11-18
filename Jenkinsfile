@@ -10,8 +10,8 @@ pipeline {
         // Configurações do projeto
         APP_NAME = 'grometis-app'
         
-        // Configurações de deploy (localhost - dentro da própria VM)
-        DEPLOY_HOST = 'localhost'
+        // Configurações de deploy (servidor de produção)
+        DEPLOY_HOST = '192.168.15.6'
         DEPLOY_USER = 'grometis'
         SSH_CREDENTIALS_ID = 'mahindra'
         
@@ -173,54 +173,69 @@ pipeline {
             steps {
                 script {
                     echo '========================================='
-                    echo 'Stage: Deploy Localmente na VM'
+                    echo 'Stage: Deploy para Servidor de Produção'
                     echo '========================================='
-                    echo "Deploying to: ${DEPLOY_USER}@${DEPLOY_HOST} (localhost)"
+                    echo "Deploying to: ${DEPLOY_USER}@${DEPLOY_HOST}"
                 }
                 
-                // Deploy local (dentro da própria VM)
-                sh """
-                    # Criar diretório para o projeto se não existir
-                    mkdir -p ~/deployments/${APP_NAME}
-                    
-                    # Copiar docker-compose.yml
-                    cp docker-compose.yml ~/deployments/${APP_NAME}/
-                    
-                    # Copiar arquivo .env se existir
-                    if [ -f .env.production ]; then
-                        cp .env.production ~/deployments/${APP_NAME}/.env
-                    fi
-                    
-                    # Executar deploy
-                    cd ~/deployments/${APP_NAME}
-                    
-                    # Definir variável de ambiente para a imagem
-                    export DOCKER_IMAGE=${FULL_IMAGE_NAME}
-                    export IMAGE_TAG=${IMAGE_TAG}
-                    
-                    echo "Pulling latest image..."
-                    docker-compose pull
-                    
-                    echo "Stopping old containers..."
-                    docker-compose down || true
-                    
-                    echo "Starting new containers..."
-                    docker-compose up -d
-                    
-                    echo "Waiting for containers to be healthy..."
-                    sleep 5
-                    
-                    echo "Checking container status..."
-                    docker-compose ps
-                    
-                    echo "Cleaning up old images..."
-                    docker image prune -f
-                """
+                // Deploy via SSH para servidor de produção
+                withCredentials([sshUserPrivateKey(credentialsId: "${SSH_CREDENTIALS_ID}", keyFileVariable: 'SSH_KEY')]) {
+                    sh """
+                        # Configurar SSH
+                        mkdir -p ~/.ssh
+                        chmod 700 ~/.ssh
+                        cp "\${SSH_KEY}" ~/.ssh/deploy_key
+                        chmod 600 ~/.ssh/deploy_key
+                        
+                        # Criar diretório de deploy no servidor de produção
+                        ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} '
+                            mkdir -p ~/deployments/${APP_NAME}
+                        '
+                        
+                        # Copiar docker-compose.yml para o servidor
+                        scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no docker-compose.yml ${DEPLOY_USER}@${DEPLOY_HOST}:~/deployments/${APP_NAME}/
+                        
+                        # Copiar arquivo .env se existir
+                        if [ -f .env.production ]; then
+                            scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no .env.production ${DEPLOY_USER}@${DEPLOY_HOST}:~/deployments/${APP_NAME}/.env
+                        fi
+                        
+                        # Executar deploy no servidor de produção
+                        ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} '
+                            cd ~/deployments/${APP_NAME}
+                            
+                            # Definir variáveis de ambiente
+                            export DOCKER_IMAGE=${FULL_IMAGE_NAME}
+                            export IMAGE_TAG=${IMAGE_TAG}
+                            
+                            echo "Pulling latest image from Docker Hub..."
+                            docker compose pull
+                            
+                            echo "Stopping old containers..."
+                            docker compose down || true
+                            
+                            echo "Starting new containers..."
+                            docker compose up -d
+                            
+                            echo "Waiting for containers to be healthy..."
+                            sleep 5
+                            
+                            echo "Checking container status..."
+                            docker compose ps
+                            
+                            echo "Cleaning up old images..."
+                            docker image prune -f
+                        '
+                        
+                        # Limpar chave temporária
+                        rm -f ~/.ssh/deploy_key
+                    """
+                }
                 
                 script {
                     echo "✓ Deploy completed successfully!"
-                    echo "Application is running locally on the VM"
-                    echo "Access via: http://10.224.139.83:3000 (VM IP)"
+                    echo "Application deployed to production server: ${DEPLOY_HOST}"
+                    echo "Access via: http://${DEPLOY_HOST}:3000"
                 }
             }
         }
@@ -233,15 +248,36 @@ pipeline {
                     echo '========================================='
                 }
                 
-                // Verificar se a aplicação está respondendo (localmente)
-                sh """
-                    cd ~/deployments/${APP_NAME}
-                    
-                    echo "Container status:"
-                    docker-compose ps
-                    
-                    echo "\nContainer logs (last 20 lines):"
-                    docker-compose logs --tail=20
+                // Verificar se a aplicação está respondendo no servidor de produção
+                withCredentials([sshUserPrivateKey(credentialsId: "${SSH_CREDENTIALS_ID}", keyFileVariable: 'SSH_KEY')]) {
+                    sh """
+                        # Configurar SSH
+                        mkdir -p ~/.ssh
+                        chmod 700 ~/.ssh
+                        cp "\${SSH_KEY}" ~/.ssh/deploy_key
+                        chmod 600 ~/.ssh/deploy_key
+                        
+                        # Verificar status no servidor de produção
+                        ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} '
+                            cd ~/deployments/${APP_NAME}
+                            
+                            echo "Container status:"
+                            docker compose ps
+                            
+                            echo ""
+                            echo "Recent logs:"
+                            docker compose logs --tail=20
+                            
+                            echo ""
+                            echo "Testing application endpoint..."
+                            sleep 2
+                            curl -f http://localhost:3000/health || echo "Health check endpoint not available"
+                        '
+                        
+                        # Limpar chave temporária
+                        rm -f ~/.ssh/deploy_key
+                    """
+                }
                     
                     echo "\nChecking application health..."
                     # Aguardar alguns segundos para a aplicação iniciar
