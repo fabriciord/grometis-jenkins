@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  app:
+    # Usar variável de ambiente para a imagem ou fallback para latest
+    image: ${DOCKER_IMAGE:-username/grometis-app:latest}
+    container_name: grometis-app
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Portas
+    ports:
+      - "3000:3000"
+    
+    # Variáveis de ambiente
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # Adicione outras variáveis conforme necessário
+      - DATABASE_URL=${DATABASE_URL:-}
+      - API_KEY=${API_KEY:-}
+    
+    # Arquivo de variáveis de ambiente (opcional)
+    env_file:
+      - .env
+    
+    # Volumes para persistência de dados (se necessário)
+    volumes:
+      - app-data:/app/data
+      - app-logs:/app/logs
+    
+    # Rede
+    networks:
+      - app-network
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Limites de recursos
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Volumes nomeados
+volumes:
+  app-data:
+    driver: local
+  app-logs:
+    driver: local
+
+# Rede
+networks:
+  app-network:
+    driver: bridge
