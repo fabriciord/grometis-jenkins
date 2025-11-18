@@ -10,8 +10,8 @@ pipeline {
         // Configurações do projeto
         APP_NAME = 'grometis-app'
         
-        // Configurações de deploy
-        DEPLOY_HOST = '192.168.15.6'
+        // Configurações de deploy (localhost - dentro da própria VM)
+        DEPLOY_HOST = 'localhost'
         DEPLOY_USER = 'grometis'
         SSH_CREDENTIALS_ID = 'mahindra'
         
@@ -173,68 +173,54 @@ pipeline {
             steps {
                 script {
                     echo '========================================='
-                    echo 'Stage: Deploy na VM'
+                    echo 'Stage: Deploy Localmente na VM'
                     echo '========================================='
-                    echo "Deploying to: ${DEPLOY_USER}@${DEPLOY_HOST}"
+                    echo "Deploying to: ${DEPLOY_USER}@${DEPLOY_HOST} (localhost)"
                 }
                 
-                // Deploy via SSH usando withCredentials
-                withCredentials([sshUserPrivateKey(credentialsId: "${SSH_CREDENTIALS_ID}", keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
-                    sh """
-                        # Configurar SSH para usar a chave privada
-                        mkdir -p ~/.ssh
-                        chmod 700 ~/.ssh
-                        cp "\${SSH_KEY}" ~/.ssh/deploy_key
-                        chmod 600 ~/.ssh/deploy_key
-                        
-                        # Criar diretório para o projeto se não existir
-                        ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} '
-                            mkdir -p ~/deployments/${APP_NAME}
-                        '
-                        
-                        # Copiar docker-compose.yml para o servidor
-                        scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no docker-compose.yml ${DEPLOY_USER}@${DEPLOY_HOST}:~/deployments/${APP_NAME}/
-                        
-                        # Copiar arquivo .env se existir
-                        if [ -f .env.production ]; then
-                            scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no .env.production ${DEPLOY_USER}@${DEPLOY_HOST}:~/deployments/${APP_NAME}/.env
-                        fi
-                        
-                        # Executar deploy no servidor
-                        ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} '
-                            cd ~/deployments/${APP_NAME}
-                            
-                            # Definir variável de ambiente para a imagem
-                            export DOCKER_IMAGE=${FULL_IMAGE_NAME}
-                            export IMAGE_TAG=${IMAGE_TAG}
-                            
-                            echo "Pulling latest image..."
-                            docker-compose pull
-                            
-                            echo "Stopping old containers..."
-                            docker-compose down || true
-                            
-                            echo "Starting new containers..."
-                            docker-compose up -d
-                            
-                            echo "Waiting for containers to be healthy..."
-                            sleep 5
-                            
-                            echo "Checking container status..."
-                            docker-compose ps
-                            
-                            echo "Cleaning up old images..."
-                            docker image prune -f
-                        '
-                        
-                        # Limpar chave temporária
-                        rm -f ~/.ssh/deploy_key
-                    """
-                }
+                // Deploy local (dentro da própria VM)
+                sh """
+                    # Criar diretório para o projeto se não existir
+                    mkdir -p ~/deployments/${APP_NAME}
+                    
+                    # Copiar docker-compose.yml
+                    cp docker-compose.yml ~/deployments/${APP_NAME}/
+                    
+                    # Copiar arquivo .env se existir
+                    if [ -f .env.production ]; then
+                        cp .env.production ~/deployments/${APP_NAME}/.env
+                    fi
+                    
+                    # Executar deploy
+                    cd ~/deployments/${APP_NAME}
+                    
+                    # Definir variável de ambiente para a imagem
+                    export DOCKER_IMAGE=${FULL_IMAGE_NAME}
+                    export IMAGE_TAG=${IMAGE_TAG}
+                    
+                    echo "Pulling latest image..."
+                    docker-compose pull
+                    
+                    echo "Stopping old containers..."
+                    docker-compose down || true
+                    
+                    echo "Starting new containers..."
+                    docker-compose up -d
+                    
+                    echo "Waiting for containers to be healthy..."
+                    sleep 5
+                    
+                    echo "Checking container status..."
+                    docker-compose ps
+                    
+                    echo "Cleaning up old images..."
+                    docker image prune -f
+                """
                 
                 script {
                     echo "✓ Deploy completed successfully!"
-                    echo "Application is running on: http://${DEPLOY_HOST}"
+                    echo "Application is running locally on the VM"
+                    echo "Access via: http://10.224.139.83:3000 (VM IP)"
                 }
             }
         }
@@ -247,32 +233,28 @@ pipeline {
                     echo '========================================='
                 }
                 
-                // Verificar se a aplicação está respondendo
-                sshagent(credentials: ["${SSH_CREDENTIALS_ID}"]) {
-                    sh """
-                        ssh -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} '
-                            cd ~/deployments/${APP_NAME}
-                            
-                            echo "Container status:"
-                            docker-compose ps
-                            
-                            echo "\nContainer logs (last 20 lines):"
-                            docker-compose logs --tail=20
-                            
-                            echo "\nChecking application health..."
-                            # Aguardar alguns segundos para a aplicação iniciar
-                            sleep 5
-                            
-                            # Verificar se o container está rodando
-                            if docker-compose ps | grep -q "Up"; then
-                                echo "✓ Application is running!"
-                            else
-                                echo "✗ Application is not running!"
-                                exit 1
-                            fi
-                        '
-                    """
-                }
+                // Verificar se a aplicação está respondendo (localmente)
+                sh """
+                    cd ~/deployments/${APP_NAME}
+                    
+                    echo "Container status:"
+                    docker-compose ps
+                    
+                    echo "\nContainer logs (last 20 lines):"
+                    docker-compose logs --tail=20
+                    
+                    echo "\nChecking application health..."
+                    # Aguardar alguns segundos para a aplicação iniciar
+                    sleep 5
+                    
+                    # Verificar se o container está rodando
+                    if docker-compose ps | grep -q "Up"; then
+                        echo "✓ Application is running!"
+                    else
+                        echo "✗ Application is not running!"
+                        exit 1
+                    fi
+                """
             }
         }
     }
