@@ -178,24 +178,30 @@ pipeline {
                     echo "Deploying to: ${DEPLOY_USER}@${DEPLOY_HOST}"
                 }
                 
-                // Deploy via SSH
-                sshagent(credentials: ["${SSH_CREDENTIALS_ID}"]) {
+                // Deploy via SSH usando withCredentials
+                withCredentials([sshUserPrivateKey(credentialsId: "${SSH_CREDENTIALS_ID}", keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
                     sh """
+                        # Configurar SSH para usar a chave privada
+                        mkdir -p ~/.ssh
+                        chmod 700 ~/.ssh
+                        cp "\${SSH_KEY}" ~/.ssh/deploy_key
+                        chmod 600 ~/.ssh/deploy_key
+                        
                         # Criar diretório para o projeto se não existir
-                        ssh -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} '
+                        ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} '
                             mkdir -p ~/deployments/${APP_NAME}
                         '
                         
                         # Copiar docker-compose.yml para o servidor
-                        scp -o StrictHostKeyChecking=no docker-compose.yml ${DEPLOY_USER}@${DEPLOY_HOST}:~/deployments/${APP_NAME}/
+                        scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no docker-compose.yml ${DEPLOY_USER}@${DEPLOY_HOST}:~/deployments/${APP_NAME}/
                         
                         # Copiar arquivo .env se existir
                         if [ -f .env.production ]; then
-                            scp -o StrictHostKeyChecking=no .env.production ${DEPLOY_USER}@${DEPLOY_HOST}:~/deployments/${APP_NAME}/.env
+                            scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no .env.production ${DEPLOY_USER}@${DEPLOY_HOST}:~/deployments/${APP_NAME}/.env
                         fi
                         
                         # Executar deploy no servidor
-                        ssh -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} '
+                        ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} '
                             cd ~/deployments/${APP_NAME}
                             
                             # Definir variável de ambiente para a imagem
@@ -220,6 +226,9 @@ pipeline {
                             echo "Cleaning up old images..."
                             docker image prune -f
                         '
+                        
+                        # Limpar chave temporária
+                        rm -f ~/.ssh/deploy_key
                     """
                 }
                 
