@@ -16,7 +16,6 @@ services:
       - ~/.kube:/root/.kube:ro  # Kubeconfig para kubectl
     environment:
       - DOCKER_HOST=unix:///var/run/docker.sock
-      - JENKINS_OPTS=--prefix=/jenkins
     networks:
       - jenkins-network
 
