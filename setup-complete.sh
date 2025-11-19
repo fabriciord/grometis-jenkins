@@ -76,11 +76,11 @@ fi
 
 echo ""
 echo "[5/5] Iniciando Jenkins..."
-if docker-compose -f docker-compose.jenkins.yml ps | grep -q "jenkins"; then
+if docker compose -f docker-compose.jenkins.yml ps | grep -q "jenkins"; then
     echo "Jenkins já está rodando"
-    docker-compose -f docker-compose.jenkins.yml ps
+    docker compose -f docker-compose.jenkins.yml ps
 else
-    docker-compose -f docker-compose.jenkins.yml up -d
+    docker compose -f docker-compose.jenkins.yml up -d
     echo "Aguardando Jenkins iniciar (isso pode levar 1-2 minutos)..."
     sleep 30
 fi
